@@ -1,4 +1,4 @@
-#main camera
+ #main camera
 import cv2
 
 cap1 = cv2.VideoCapture(0)
