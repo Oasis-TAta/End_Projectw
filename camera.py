@@ -71,6 +71,18 @@ def line_is_configured():
     """ตรวจสอบว่าสามารถส่งข้อความผ่าน line_chat service ได้หรือไม่."""
     return LINE_MODULE_AVAILABLE and bool(LINE_CHAT_DEFAULT_TO)
 
+
+def notify_terminal(message):
+    """แสดงข้อความแจ้งเตือนใน terminal โดยไม่พึ่งพา LINE."""
+    print(f"[POSTURE ALERT] {message}", flush=True)
+
+# ==================== การตั้งค่ากล้องสำหรับ Raspberry Pi ====================
+# ใช้ความละเอียดเริ่มต้น 640x480 เพื่อลดภาระ CPU และ RAM ของ Raspberry Pi 4GB
+# ค่าที่ผู้ใช้ตั้งผ่าน environment จะถูกจำกัดไม่ให้เกิน 1280x700
+CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", "0"))
+CAMERA_WIDTH = min(max(int(os.environ.get("CAMERA_WIDTH", "640")), 1), 1280)
+CAMERA_HEIGHT = min(max(int(os.environ.get("CAMERA_HEIGHT", "480")), 1), 700)
+
 # ==================== ดาวน์โหลดโมเดล ====================
 MODEL_PATH = "pose_landmarker_lite.task"                  # ชื่อไฟล์โมเดลที่จะเก็บไว้ในเครื่อง
 MODEL_URL  = (                                             # URL ต้นทางของโมเดล (Google Cloud Storage)
@@ -123,7 +135,7 @@ ALERT_DISPLAY_SEC    = 5    # วินาที: กล่องเตือน
 #     - ถ้าไม่อยากให้ส่ง LINE เลย คอมเมนต์บล็อกนี้ทั้งหมด แล้วตั้ง
 #       LINE_ALERT_DURATION_TRIGGER = 999999 แทนได้เลย (หรือลบไฟล์ line_notify.py ทิ้ง)
 # ============================================================================
-LINE_ALERT_DURATION_TRIGGER = 60    # วินาที: ต้องค่อมต่อเนื่องนานเท่านี้ก่อนยิงข้อความไป LINE
+LINE_ALERT_DURATION_TRIGGER = 10    # วินาที: ถ้าท่าผิดติดต่อกันเกิน 10 วินาที ให้ส่งข้อความไป LINE
 LINE_ALERT_COOLDOWN_SEC     = 300   # วินาที: ส่ง LINE ซ้ำได้ทุกกี่วินาที (300 = 5 นาที) กันสแปม
 
 
@@ -273,9 +285,9 @@ options = mp_vision.PoseLandmarkerOptions(                             # สร�
 detector = mp_vision.PoseLandmarker.create_from_options(options)        # สร้างตัวตรวจจับ pose จริงจากค่าตั้งค่าด้านบน
 
 # ==================== เปิดกล้อง ====================
-cap = cv2.VideoCapture(0)                                               # เปิดกล้องตัวแรกของเครื่อง (index 0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)                                 # ตั้งความกว้างเฟรมภาพเป็น 1280 พิกเซล
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)                                 # ตั้งความสูงเฟรมภาพเป็น 720 พิกเซล
+cap = cv2.VideoCapture(CAMERA_INDEX)                                    # เปิดกล้องตาม index ที่ตั้งไว้
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)                          # ตั้งความกว้างภาพให้เหมาะกับ Raspberry Pi
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)                        # ตั้งความสูงภาพให้เหมาะกับ Raspberry Pi
 
 print("กด Q / ESC เพื่อออก  |  กด R เพื่อ reset baseline")               # แจ้งคีย์ลัดให้ผู้ใช้ทราบตอนเริ่มโปรแกรม
 if LINE_MODULE_AVAILABLE and line_is_configured():                      # กรณีมีโมดูล LINE และตั้งค่าครบแล้ว
@@ -295,10 +307,12 @@ bad_frames    = 0                                                        # น�
 
 # แก้ไข: ตัวแปรใหม่สำหรับคุมการส่งแจ้งเตือนไป LINE แยกจากการเตือนบนจอ (คนละ cooldown กัน)
 last_line_alert_t = 0                                                    # เวลาที่ส่งข้อความ LINE ครั้งล่าสุด
+last_terminal_alert_t = 0                                                 # เวลาที่แจ้งเตือนใน terminal ครั้งล่าสุด
 
 # สถิติ session
 session_start = time.time()                                              # เวลาที่เริ่ม session (ใช้คำนวณเวลารวม)
 total_bad_sec = 0.0                                                       # เวลารวมทั้งหมดที่นั่งท่าไม่ดี (วินาที)
+previous_frame_time = session_start                                       # เวลาเฟรมก่อนหน้า ใช้สะสมเวลาจริงของท่าผิด
 
 while cap.isOpened():                                                     # ลูปหลัก: ทำงานตราบเท่าที่กล้องยังเปิดอยู่
     ok, frame = cap.read()                                                 # อ่านเฟรมภาพปัจจุบันจากกล้อง
@@ -377,7 +391,7 @@ while cap.isOpened():                                                     # ล�
             if bad_start is None:                                            # ถ้ายังไม่มีจุดเริ่มนั่งไม่ดี
                 bad_start = now                                               # บันทึกเวลาเริ่มนั่งไม่ดีตอนนี้
             bad_elapsed = now - bad_start                                    # คำนวณระยะเวลาที่นั่งไม่ดีต่อเนื่องมา
-            total_bad_sec += 0.033                                           # สะสมเวลารวมของท่าไม่ดี (~1 เฟรม)
+            total_bad_sec += now - previous_frame_time                       # สะสมเวลาจริง ไม่ผูกกับจำนวน FPS
 
             # --- ใช้ค่าจาก ZONE 2 (เวลาแจ้งเตือนบนจอ) ---
             if bad_elapsed >= BAD_DURATION_TRIGGER and (now - last_alert_t) > ALERT_COOLDOWN_SEC:  # เช็คเงื่อนไข ZONE 2
@@ -387,6 +401,16 @@ while cap.isOpened():                                                     # ล�
                 alert_msg   = "Tex  " + "   ".join(tips)                      # รวมคำแนะนำทั้งหมดเป็นข้อความเดียว
                 alert_until = now + ALERT_DISPLAY_SEC                         # ตั้งเวลาที่จะซ่อนกล่องเตือน (ZONE 2)
                 last_alert_t = now                                            # บันทึกเวลาที่เตือนล่าสุด (ใช้คุม cooldown)
+
+            # --- แจ้งเตือนใน terminal ---
+            if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER
+                    and (now - last_terminal_alert_t) > LINE_ALERT_COOLDOWN_SEC):
+                terminal_msg = (
+                    f"นั่งผิดติดต่อกัน {bad_elapsed:.0f} วินาที: "
+                    "กรุณาปรับหลังและศีรษะให้อยู่ในท่าที่ถูกต้อง"
+                )
+                notify_terminal(terminal_msg)
+                last_terminal_alert_t = now
 
             # --- ใช้ค่าจาก ZONE 3 (เวลาแจ้งเตือนเข้า LINE) ---
             if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER                    # เช็คว่าค่อมนานพอตามเกณฑ์ ZONE 3 หรือยัง
@@ -402,11 +426,12 @@ while cap.isOpened():                                                     # ล�
                 last_line_alert_t = now                                       # บันทึกเวลาที่ส่ง LINE ล่าสุด (ZONE 3)
         else:                                                                 # ถ้าท่าทางตอนนี้โอเคแล้ว
             good_frames += 1                                                  # เพิ่มตัวนับเฟรมท่าดีติดต่อกัน
-            if good_frames > 10:                                              # ถ้าท่าดีต่อเนื่องเกิน 10 เฟรม
-                bad_start = None                                              # รีเซ็ตจุดเริ่มนั่งไม่ดี (ถือว่าหายค่อมแล้ว)
+            bad_start = None                                                  # ท่ากลับมาถูกแล้ว จึงหยุดและรีเซ็ต timer ทันที
             bad_frames = 0                                                    # รีเซ็ตตัวนับเฟรมท่าไม่ดีเป็นศูนย์
     else:                                                                     # ถ้าไม่พบคนในเฟรมนี้เลย
         bad_start = None                                                      # รีเซ็ตจุดเริ่มนั่งไม่ดี (ไม่มีข้อมูลให้เช็ค)
+
+    previous_frame_time = now                                                  # เก็บเวลาเฟรมนี้ไว้คำนวณเฟรมถัดไป
 
     # ==================== UI ====================
     # --- แถบบน: สถานะ ---
