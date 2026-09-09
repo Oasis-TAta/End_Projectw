@@ -22,13 +22,13 @@
 # แก้ไข: แยกค่าตั้งเวลาแจ้งเตือนออกเป็น "โซน" ชัดเจน คอมเมนต์ทั้งบล็อกได้ง่าย
 # ============================================================================
 
-import cv2                                              # ใช้วาดภาพ/แสดงผลกล้อง (OpenCV)
-import math                                             # ใช้คำนวณมุมและระยะทาง (acos, hypot)
-import time                                              # ใช้จับเวลา session และ cooldown ของการแจ้งเตือน
-import threading                                        # แก้ไข: ใช้รันการส่ง LINE แบบ background ไม่ให้ภาพกระตุก
-import urllib.request                                    # ใช้ดาวน์โหลดโมเดล pose จากอินเทอร์เน็ต
-import os                                                # ใช้เช็คว่าไฟล์โมเดลมีอยู่แล้วหรือยัง
-import mediapipe as mp                                   # ไลบรารีตรวจจับท่าทางร่างกาย (Pose Landmarker)
+import cv2                                      # ใช้วาดภาพ/แสดงผลกล้อง (OpenCV)
+import math                                     # ใช้คำนวณมุมและระยะทาง (acos, hypot)
+import time                                     # ใช้จับเวลา session และ cooldown ของการแจ้งเตือน
+import threading                                # แก้ไข: ใช้รันการส่ง LINE แบบ background ไม่ให้ภาพกระตุก
+import urllib.request                           # ใช้ดาวน์โหลดโมเดล pose จากอินเทอร์เน็ต
+import os                                       # ใช้เช็คว่าไฟล์โมเดลมีอยู่แล้วหรือยัง
+import mediapipe as mp                          # ไลบรารีตรวจจับท่าทางร่างกาย (Pose Landmarker)
 from mediapipe.tasks import python as mp_python           # โมดูลย่อยสำหรับตั้งค่า BaseOptions ของโมเดล
 from mediapipe.tasks.python import vision as mp_vision    # โมดูลย่อยสำหรับ PoseLandmarker (vision tasks)
 from mediapipe.tasks.python.vision import PoseLandmarksConnections  # เส้นเชื่อมจุด landmark มาตรฐานของ MediaPipe
@@ -50,7 +50,7 @@ except ImportError:                                       # ถ้าไม่�
 
 # ==================== ดาวน์โหลดโมเดล ====================
 MODEL_PATH = "pose_landmarker_lite.task"                  # ชื่อไฟล์โมเดลที่จะเก็บไว้ในเครื่อง
-MODEL_URL  = (                                             # URL ต้นทางของโมเดล (Google Cloud Storage)
+MODEL_URL  = (                                            # URL ต้นทางของโมเดล (Google Cloud Storage)
     "https://storage.googleapis.com/mediapipe-models/"     # ส่วนโดเมนของ URL
     "pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"  # ส่วน path ของไฟล์โมเดล
 )
@@ -110,9 +110,9 @@ def angle_3pts(a, b, c):                                    # ฟังก์ช
     ax, ay = a[0]-b[0], a[1]-b[1]                             # เวกเตอร์จาก B ไป A (แกน x, y)
     cx, cy = c[0]-b[0], c[1]-b[1]                             # เวกเตอร์จาก B ไป C (แกน x, y)
     dot   = ax*cx + ay*cy                                     # ผลคูณจุด (dot product) ของสองเวกเตอร์
-    mag_a = math.hypot(ax, ay)                                 # ความยาวเวกเตอร์ B->A
-    mag_c = math.hypot(cx, cy)                                 # ความยาวเวกเตอร์ B->C
-    if mag_a * mag_c == 0:                                     # กันหารด้วยศูนย์ (จุดซ้อนทับกัน)
+    mag_a = math.hypot(ax, ay)                                # ความยาวเวกเตอร์ B->A
+    mag_c = math.hypot(cx, cy)                                # ความยาวเวกเตอร์ B->C
+    if mag_a * mag_c == 0:                                    # กันหารด้วยศูนย์ (จุดซ้อนทับกัน)
         return 180.0                                            # คืนมุม 180 องศา (ถือว่าตรง) เป็นค่า fallback
     return math.degrees(math.acos(max(-1, min(1, dot / (mag_a * mag_c)))))  # คำนวณมุมจาก cos แล้วแปลงเป็นองศา
 
@@ -133,13 +133,13 @@ def catmull_rom_point(p0, p1, p2, p3, t):
     t2 = t * t                                                  # t ยกกำลังสอง (ใช้ในสูตร cubic)
     t3 = t2 * t                                                 # t ยกกำลังสาม (ใช้ในสูตร cubic)
     x = 0.5 * (                                                 # สูตร Catmull-Rom สำหรับแกน x
-        (2 * p1[0]) +                                            # เทอมที่ 1: 2*P1
+        (2 * p1[0]) +                                           # เทอมที่ 1: 2*P1
         (-p0[0] + p2[0]) * t +                                   # เทอมที่ 2: (-P0+P2)*t
         (2*p0[0] - 5*p1[0] + 4*p2[0] - p3[0]) * t2 +              # เทอมที่ 3: สัมประสิทธิ์ความโค้ง * t^2
         (-p0[0] + 3*p1[0] - 3*p2[0] + p3[0]) * t3                # เทอมที่ 4: สัมประสิทธิ์ปลายเส้น * t^3
     )
     y = 0.5 * (                                                 # สูตร Catmull-Rom สำหรับแกน y (สมมาตรกับแกน x)
-        (2 * p1[1]) +                                            # เทอมที่ 1: 2*P1
+        (2 * p1[1]) +                                           # เทอมที่ 1: 2*P1
         (-p0[1] + p2[1]) * t +                                   # เทอมที่ 2: (-P0+P2)*t
         (2*p0[1] - 5*p1[1] + 4*p2[1] - p3[1]) * t2 +              # เทอมที่ 3: สัมประสิทธิ์ความโค้ง * t^2
         (-p0[1] + 3*p1[1] - 3*p2[1] + p3[1]) * t3                # เทอมที่ 4: สัมประสิทธิ์ปลายเส้น * t^3
@@ -215,19 +215,19 @@ def draw_spine_line(frame, spine_points, major_indices, color):
         if i in major_set:                                           # แก้ไข: ถ้าเป็นจุดข้อต่อหลัก (รวมจุดคอ) ให้วาดขนาดเดิม
             is_endpoint = i == 0 or i == n - 1                        # เช็คว่าเป็นจุดหัว (หู) หรือจุดท้าย (สะโพก) ไหม
             radius = 8 if is_endpoint else 6                          # แก้ไข: คืนขนาดเดิม — หัวท้าย 8, คอ/ไหล่/เอว 6
-        else:                                                         # ถ้าเป็นจุดย่อยที่แทรกจากเส้นโค้งเท่านั้น
-            radius = 3                                                # วาดเล็ก ๆ ให้เห็นความละเอียดของเส้นโค้ง
+        else:                                                        # ถ้าเป็นจุดย่อยที่แทรกจากเส้นโค้งเท่านั้น
+            radius = 3                                               # วาดเล็ก ๆ ให้เห็นความละเอียดของเส้นโค้ง
         cv2.circle(frame, pt, radius, color, -1)                       # วาดวงกลมทึบสีตามสถานะท่าทาง
         cv2.circle(frame, pt, radius, (255, 255, 255), 1)              # วาดขอบขาวบาง ๆ ให้จุดข้อต่อดูเด่นขึ้น
 
 
 def draw_rounded_rect(img, x1, y1, x2, y2, r, color, alpha=0.6):     # ฟังก์ชันวาดกล่องพื้นหลังโปร่งใสมุมโค้ง
     """วาดกล่องโปร่งใส"""                                              # อธิบายหน้าที่ฟังก์ชัน
-    overlay = img.copy()                                               # ทำสำเนาภาพไว้วาดทับแบบโปร่งใส
+    overlay = img.copy()                                              # ทำสำเนาภาพไว้วาดทับแบบโปร่งใส
     cv2.rectangle(overlay, (x1+r, y1), (x2-r, y2), color, -1)          # วาดสี่เหลี่ยมแนวนอนตรงกลาง (เว้นมุม)
     cv2.rectangle(overlay, (x1, y1+r), (x2, y2-r), color, -1)          # วาดสี่เหลี่ยมแนวตั้งตรงกลาง (เว้นมุม)
     for cx, cy in [(x1+r, y1+r), (x2-r, y1+r), (x1+r, y2-r), (x2-r, y2-r)]:  # วนตามมุมทั้ง 4 ของกล่อง
-        cv2.circle(overlay, (cx, cy), r, color, -1)                     # วาดวงกลมเติมมุมให้โค้งมน
+        cv2.circle(overlay, (cx, cy), r, color, -1)                    # วาดวงกลมเติมมุมให้โค้งมน
     cv2.addWeighted(overlay, alpha, img, 1-alpha, 0, img)               # ผสมภาพ overlay กับภาพจริงให้โปร่งแสง
 
 
@@ -259,7 +259,7 @@ if LINE_MODULE_AVAILABLE and line_is_configured():                      # กร
     print("[LINE] เชื่อมต่อระบบแจ้งเตือน LINE พร้อมใช้งาน")               # แจ้งว่า LINE พร้อมใช้งาน
 elif LINE_MODULE_AVAILABLE:                                              # กรณีมีไฟล์โมดูลแต่ยังตั้งค่าไม่ครบ
     print("[LINE] พบไฟล์ line_notify.py แต่ยังไม่ได้ตั้งค่า token/user id (ดูคอมเมนต์ในไฟล์นั้น)")  # แจ้งเตือนให้ตั้งค่า
-else:                                                                     # กรณีไม่พบไฟล์โมดูลเลย
+else:                                                                    # กรณีไม่พบไฟล์โมดูลเลย
     print("[LINE] ไม่พบไฟล์ line_notify.py — ระบบแจ้งเตือน LINE ถูกปิดใช้งาน")  # แจ้งว่าปิดใช้งานฟีเจอร์ LINE
 
 timestamp_ms  = 0                                                        # ตัวนับเวลา (ms) ป้อนให้ MediaPipe VIDEO mode
@@ -275,186 +275,180 @@ last_line_alert_t = 0                                                    # เ�
 
 # สถิติ session
 session_start = time.time()                                              # เวลาที่เริ่ม session (ใช้คำนวณเวลารวม)
-total_bad_sec = 0.0                                                       # เวลารวมทั้งหมดที่นั่งท่าไม่ดี (วินาที)
+total_bad_sec = 0.0                                                      # เวลารวมทั้งหมดที่นั่งท่าไม่ดี (วินาที)
 
-while cap.isOpened():                                                     # ลูปหลัก: ทำงานตราบเท่าที่กล้องยังเปิดอยู่
-    ok, frame = cap.read()                                                 # อ่านเฟรมภาพปัจจุบันจากกล้อง
-    if not ok:                                                             # ถ้าอ่านภาพไม่สำเร็จ (กล้องหลุด/ปิด)
-        break                                                               # ออกจากลูปหลักทันที
+while cap.isOpened():                                                    # ลูปหลัก: ทำงานตราบเท่าที่กล้องยังเปิดอยู่
+    ok, frame = cap.read()                                                # อ่านเฟรมภาพปัจจุบันจากกล้อง
+    if not ok:                                                            # ถ้าอ่านภาพไม่สำเร็จ (กล้องหลุด/ปิด)
+        break                                                             # ออกจากลูปหลักทันที
 
-    frame = cv2.flip(frame, 1)                                             # กลับภาพซ้าย-ขวา ให้เหมือนกระจกเงา
-    H, W = frame.shape[:2]                                                 # ดึงความสูง (H) และความกว้าง (W) ของเฟรม
-    now  = time.time()                                                     # บันทึกเวลาปัจจุบัน (timestamp) ของเฟรมนี้
+    frame = cv2.flip(frame, 1)                                            # กลับภาพซ้าย-ขวา ให้เหมือนกระจกเงา
+    H, W = frame.shape[:2]                                                # ดึงความสูง (H) และความกว้าง (W) ของเฟรม
+    now  = time.time()                                                    # บันทึกเวลาปัจจุบัน (timestamp) ของเฟรมนี้
 
     rgb      = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)                      # แปลงสีจาก BGR (OpenCV) เป็น RGB (MediaPipe)
     mp_img   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)         # ห่อภาพ RGB เป็น mp.Image สำหรับโมเดล
-    timestamp_ms += 33                                                     # เพิ่มตัวนับเวลา ~33ms ต่อเฟรม (ประมาณ 30fps)
+    timestamp_ms += 33                                                    # เพิ่มตัวนับเวลา ~33ms ต่อเฟรม (ประมาณ 30fps)
     result   = detector.detect_for_video(mp_img, timestamp_ms)              # ส่งภาพเข้าโมเดลเพื่อตรวจจับท่าทาง
 
-    posture_ok   = True                                                    # ตั้งค่าเริ่มต้นว่าท่าทางโอเคไว้ก่อน
-    issues       = []                                                      # ลิสต์เก็บข้อความสั้นสำหรับกล่อง metrics
-    tips         = []                                                      # แก้ไข: ลิสต์เก็บคำแนะนำเต็ม ๆ สำหรับกล่องเตือน
-    spine_angle  = None                                                    # ตัวแปรมุมกระดูกสันหลัง (ยังไม่คำนวณ)
-    head_forward = None                                                    # ตัวแปรระยะคอยื่น (ยังไม่คำนวณ)
+    posture_ok   = True                                                   # ตั้งค่าเริ่มต้นว่าท่าทางโอเคไว้ก่อน
+    issues       = []                                                     # ลิสต์เก็บข้อความสั้นสำหรับกล่อง metrics
+    tips         = []                                                     # แก้ไข: ลิสต์เก็บคำแนะนำเต็ม ๆ สำหรับกล่องเตือน
+    spine_angle  = None                                                   # ตัวแปรมุมกระดูกสันหลัง (ยังไม่คำนวณ)
+    head_forward = None                                                   # ตัวแปรระยะคอยื่น (ยังไม่คำนวณ)
 
-    if result.pose_landmarks:                                              # ถ้าโมเดลตรวจพบคนในเฟรมนี้
-        lms = result.pose_landmarks[0]                                      # ดึง landmark ของคนคนแรกที่เจอ
+    if result.pose_landmarks:                                             # ถ้าโมเดลตรวจพบคนในเฟรมนี้
+        lms = result.pose_landmarks[0]                                     # ดึง landmark ของคนคนแรกที่เจอ
 
         # ---- ดึงจุดสำคัญ ----
-        l_ear = lm_px(lms[LEFT_EAR],  W, H)                                 # พิกัดพิกเซลของหูซ้าย
-        r_ear = lm_px(lms[RIGHT_EAR], W, H)                                 # พิกัดพิกเซลของหูขวา
-        l_sh  = lm_px(lms[LEFT_SHOULDER],  W, H)                            # พิกัดพิกเซลของไหล่ซ้าย
-        r_sh  = lm_px(lms[RIGHT_SHOULDER], W, H)                            # พิกัดพิกเซลของไหล่ขวา
-        l_hip = lm_px(lms[LEFT_HIP],  W, H)                                 # พิกัดพิกเซลของสะโพกซ้าย
-        r_hip = lm_px(lms[RIGHT_HIP], W, H)                                 # พิกัดพิกเซลของสะโพกขวา
+        l_ear = lm_px(lms[LEFT_EAR],  W, H)                                # พิกัดพิกเซลของหูซ้าย
+        r_ear = lm_px(lms[RIGHT_EAR], W, H)                                # พิกัดพิกเซลของหูขวา
+        l_sh  = lm_px(lms[LEFT_SHOULDER],  W, H)                           # พิกัดพิกเซลของไหล่ซ้าย
+        r_sh  = lm_px(lms[RIGHT_SHOULDER], W, H)                           # พิกัดพิกเซลของไหล่ขวา
+        l_hip = lm_px(lms[LEFT_HIP],  W, H)                                # พิกัดพิกเซลของสะโพกซ้าย
+        r_hip = lm_px(lms[RIGHT_HIP], W, H)                                # พิกัดพิกเซลของสะโพกขวา
 
-        ear_mid = midpoint(l_ear, r_ear)                                    # จุดกึ่งกลางระหว่างหูซ้าย-ขวา
-        sh_mid  = midpoint(l_sh,  r_sh)                                     # จุดกึ่งกลางระหว่างไหล่ซ้าย-ขวา
-        hip_mid = midpoint(l_hip, r_hip)                                    # จุดกึ่งกลางระหว่างสะโพกซ้าย-ขวา
+        ear_mid = midpoint(l_ear, r_ear)                                   # จุดกึ่งกลางระหว่างหูซ้าย-ขวา
+        sh_mid  = midpoint(l_sh,  r_sh)                                    # จุดกึ่งกลางระหว่างไหล่ซ้าย-ขวา
+        hip_mid = midpoint(l_hip, r_hip)                                   # จุดกึ่งกลางระหว่างสะโพกซ้าย-ขวา
 
         # ---- วาดโครงกระดูก ----
-        draw_skeleton(frame, lms, W, H)                                     # วาดโครงกระดูกทั้งตัวแบบจาง ๆ เป็นพื้นหลัง
+        draw_skeleton(frame, lms, W, H)                                    # วาดโครงกระดูกทั้งตัวแบบจาง ๆ เป็นพื้นหลัง
 
         # ---- 1. มุมกระดูกสันหลัง (หู → ไหล่ → สะโพก) ----
-        spine_angle = angle_3pts(ear_mid, sh_mid, hip_mid)                  # คำนวณมุมโค้งของหลังจาก 3 จุดหลัก
+        spine_angle = angle_3pts(ear_mid, sh_mid, hip_mid)                 # คำนวณมุมโค้งของหลังจาก 3 จุดหลัก
 
         # ---- 2. Forward Head (หูยื่นไปข้างหน้ากว่าไหล่) ----
         # ใช้ normalized coords เพื่อให้ distance-independent
-        ear_x_n  = (lms[LEFT_EAR].x + lms[RIGHT_EAR].x) / 2                 # ค่าเฉลี่ยตำแหน่ง x ของหู (normalized)
-        sh_x_n   = (lms[LEFT_SHOULDER].x + lms[RIGHT_SHOULDER].x) / 2       # ค่าเฉลี่ยตำแหน่ง x ของไหล่ (normalized)
-        head_forward = abs(ear_x_n - sh_x_n)                                # ระยะห่างแนวนอนระหว่างหูกับไหล่
+        ear_x_n  = (lms[LEFT_EAR].x + lms[RIGHT_EAR].x) / 2                # ค่าเฉลี่ยตำแหน่ง x ของหู (normalized)
+        sh_x_n   = (lms[LEFT_SHOULDER].x + lms[RIGHT_SHOULDER].x) / 2      # ค่าเฉลี่ยตำแหน่ง x ของไหล่ (normalized)
+        head_forward = abs(ear_x_n - sh_x_n)                               # ระยะห่างแนวนอนระหว่างหูกับไหล่
 
         # ---- วิเคราะห์ ----
         # แก้ไข: ข้อความแนะนำวิธีแก้ไข (tips) แยกจากข้อความสั้นสำหรับ metrics (issues)
-        if spine_angle < SPINE_ANGLE_WARN:                                  # ถ้ามุมหลังน้อยกว่าเกณฑ์ "ค่อมชัดเจน"
-            posture_ok = False                                               # ตั้งสถานะว่าท่าทางไม่โอเค
-            issues.append(f"หลังค่อมมาก ({spine_angle:.0f}°)")               # เพิ่มข้อความสั้นเข้าลิสต์ metrics
+        if spine_angle < SPINE_ANGLE_WARN:                                 # ถ้ามุมหลังน้อยกว่าเกณฑ์ "ค่อมชัดเจน"
+            posture_ok = False                                              # ตั้งสถานะว่าท่าทางไม่โอเค
+            issues.append(f"หลังค่อมมาก ({spine_angle:.0f}°)")              # เพิ่มข้อความสั้นเข้าลิสต์ metrics
             tips.append("นั่งหลังค่อมมากไปแล้วนะ ลองยืดตัวตรง ผ่อนไหล่ลง แล้วดันอกขึ้นเบา ๆ")  # เพิ่มคำแนะนำเต็ม
-        elif spine_angle < SPINE_ANGLE_GOOD:                                 # ถ้ามุมอยู่ระหว่างเกณฑ์ "เริ่มค่อม"
-            posture_ok = False                                               # ตั้งสถานะว่าท่าทางไม่โอเค
-            issues.append(f"เริ่มค่อม ({spine_angle:.0f}°)")                 # เพิ่มข้อความสั้นเข้าลิสต์ metrics
+        elif spine_angle < SPINE_ANGLE_GOOD:                                # ถ้ามุมอยู่ระหว่างเกณฑ์ "เริ่มค่อม"
+            posture_ok = False                                              # ตั้งสถานะว่าท่าทางไม่โอเค
+            issues.append(f"เริ่มค่อม ({spine_angle:.0f}°)")                # เพิ่มข้อความสั้นเข้าลิสต์ metrics
             tips.append("เริ่มหลังค่อมแล้วนะ ลองขยับก้นชิดพนักเก้าอี้ แล้วยืดหลังตรงอีกนิด")  # เพิ่มคำแนะนำเต็ม
 
-        if head_forward > HEAD_FORWARD_THRESH:                              # ถ้าคอยื่นเกินเกณฑ์ที่ตั้งไว้
-            posture_ok = False                                               # ตั้งสถานะว่าท่าทางไม่โอเค
-            issues.append("คอยื่น (Forward Head)")                          # เพิ่มข้อความสั้นเข้าลิสต์ metrics
+        if head_forward > HEAD_FORWARD_THRESH:                             # ถ้าคอยื่นเกินเกณฑ์ที่ตั้งไว้
+            posture_ok = False                                              # ตั้งสถานะว่าท่าทางไม่โอเค
+            issues.append("คอยื่น (Forward Head)")                         # เพิ่มข้อความสั้นเข้าลิสต์ metrics
             tips.append("คอยื่นไปข้างหน้าเยอะไป ลองดึงคางเข้าเล็กน้อย และปรับจอให้อยู่ระดับสายตา")  # เพิ่มคำแนะนำเต็ม
 
         # ---- วาดเส้นกระดูกสันหลัง (ละเอียดขึ้นมากด้วยเส้นโค้ง Catmull-Rom) ----
         # แก้ไข: เรียก build_spine_points() แบบใหม่ที่คืนจุดข้อต่อละเอียดกว่าเดิมหลายเท่า
-        color_spine = (0, 220, 80) if posture_ok else (0, 80, 255)          # สีเขียวถ้าท่าดี, สีแดงถ้าท่าไม่ดี
+        color_spine = (0, 220, 80) if posture_ok else (0, 80, 255)         # สีเขียวถ้าท่าดี, สีแดงถ้าท่าไม่ดี
         # แก้ไข: build_spine_points ตอนนี้คืนค่า 2 ตัว (จุดทั้งหมด, index ของจุดข้อต่อหลัก) ต้องรับให้ครบ
         spine_points, major_indices = build_spine_points(ear_mid, sh_mid, hip_mid, points_per_segment=6)  # สร้างจุดข้อต่อละเอียด
-        draw_spine_line(frame, spine_points, major_indices, color_spine)    # วาดแนวกระดูกสันหลัง (จุดคอ/ไหล่/เอวขนาดเท่าเดิม)
+        draw_spine_line(frame, spine_points, major_indices, color_spine)   # วาดแนวกระดูกสันหลัง (จุดคอ/ไหล่/เอวขนาดเท่าเดิม)
 
         # ---- จับเวลาท่าไม่ดี ----
-        if not posture_ok:                                                  # ถ้าท่าทางตอนนี้ไม่โอเค
-            bad_frames += 1                                                  # เพิ่มตัวนับเฟรมท่าไม่ดีติดต่อกัน
-            good_frames = 0                                                  # รีเซ็ตตัวนับเฟรมท่าดีเป็นศูนย์
-            if bad_start is None:                                            # ถ้ายังไม่มีจุดเริ่มนั่งไม่ดี
-                bad_start = now                                               # บันทึกเวลาเริ่มนั่งไม่ดีตอนนี้
-            bad_elapsed = now - bad_start                                    # คำนวณระยะเวลาที่นั่งไม่ดีต่อเนื่องมา
-            total_bad_sec += 0.033                                           # สะสมเวลารวมของท่าไม่ดี (~1 เฟรม)
+        if not posture_ok:                                                 # ถ้าท่าทางตอนนี้ไม่โอเค
+            bad_frames += 1                                                # เพิ่มตัวนับเฟรมท่าไม่ดีติดต่อกัน
+            good_frames = 0                                                # รีเซ็ตตัวนับเฟรมท่าดีเป็นศูนย์
+            if bad_start is None:                                           # ถ้ายังไม่มีจุดเริ่มนั่งไม่ดี
+                bad_start = now                                            # บันทึกเวลาเริ่มนั่งไม่ดีตอนนี้
+            bad_elapsed = now - bad_start                                   # คำนวณระยะเวลาที่นั่งไม่ดีต่อเนื่องมา
+            total_bad_sec += 0.033                                         # สะสมเวลารวมของท่าไม่ดี (~1 เฟรม)
 
             # --- ใช้ค่าจาก ZONE 2 (เวลาแจ้งเตือนบนจอ) ---
             if bad_elapsed >= BAD_DURATION_TRIGGER and (now - last_alert_t) > ALERT_COOLDOWN_SEC:  # เช็คเงื่อนไข ZONE 2
                 # แก้ไข: ใช้ tips (ข้อความแนะนำ) แทน issues (แค่ตัวเลข) ในกล่องเตือนใหญ่
                 # แก้ไข: เปลี่ยนสัญลักษณ์ "⚠" เป็นคำว่า "Tex" เพราะฟอนต์ของ OpenCV (Hershey)
                 # ไม่รองรับอักขระ emoji/unicode พวกนี้ เวลาแสดงผลจริงจะกลายเป็น "?" แทน
-                alert_msg   = "Tex  " + "   ".join(tips)                      # รวมคำแนะนำทั้งหมดเป็นข้อความเดียว
-                alert_until = now + ALERT_DISPLAY_SEC                         # ตั้งเวลาที่จะซ่อนกล่องเตือน (ZONE 2)
-                last_alert_t = now                                            # บันทึกเวลาที่เตือนล่าสุด (ใช้คุม cooldown)
+                alert_msg   = "Tex  " + "   ".join(tips)                     # รวมคำแนะนำทั้งหมดเป็นข้อความเดียว
+                alert_until = now + ALERT_DISPLAY_SEC                        # ตั้งเวลาที่จะซ่อนกล่องเตือน (ZONE 2)
+                last_alert_t = now                                           # บันทึกเวลาที่เตือนล่าสุด (ใช้คุม cooldown)
 
             # --- ใช้ค่าจาก ZONE 3 (เวลาแจ้งเตือนเข้า LINE) ---
-            if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER                    # เช็คว่าค่อมนานพอตามเกณฑ์ ZONE 3 หรือยัง
+            if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER                   # เช็คว่าค่อมนานพอตามเกณฑ์ ZONE 3 หรือยัง
                     and (now - last_line_alert_t) > LINE_ALERT_COOLDOWN_SEC):  # และพ้น cooldown ของ ZONE 3 หรือยัง
-                minutes = int(bad_elapsed // 60)                              # แปลงวินาทีที่ค่อมเป็นจำนวนนาที (ปัดลง)
-                line_msg = (                                                  # ประกอบข้อความที่จะส่งเข้า LINE
+                minutes = int(bad_elapsed // 60)                             # แปลงวินาทีที่ค่อมเป็นจำนวนนาที (ปัดลง)
+                line_msg = (                                                 # ประกอบข้อความที่จะส่งเข้า LINE
                     "🪑 Posture Guard แจ้งเตือน\n"                            # หัวข้อข้อความ
                     f"คุณนั่งหลังค่อม/คอยื่นต่อเนื่องมาแล้วประมาณ {minutes} นาที\n"  # บอกระยะเวลาที่ค่อม
                     + "\n".join(f"- {t}" for t in tips)                        # แสดงคำแนะนำแต่ละข้อเป็นบูลเลต
                     + "\nลองลุกยืดเส้นยืดสาย หรือปรับท่านั่งสักครู่นะครับ"       # ปิดท้ายด้วยคำแนะนำรวม
                 )
-                notify_line_async(line_msg)                                   # ส่งข้อความไป LINE แบบ background
-                last_line_alert_t = now                                       # บันทึกเวลาที่ส่ง LINE ล่าสุด (ZONE 3)
-        else:                                                                 # ถ้าท่าทางตอนนี้โอเคแล้ว
-            good_frames += 1                                                  # เพิ่มตัวนับเฟรมท่าดีติดต่อกัน
-            if good_frames > 10:                                              # ถ้าท่าดีต่อเนื่องเกิน 10 เฟรม
-                bad_start = None                                              # รีเซ็ตจุดเริ่มนั่งไม่ดี (ถือว่าหายค่อมแล้ว)
-            bad_frames = 0                                                    # รีเซ็ตตัวนับเฟรมท่าไม่ดีเป็นศูนย์
-    else:                                                                     # ถ้าไม่พบคนในเฟรมนี้เลย
-        bad_start = None                                                      # รีเซ็ตจุดเริ่มนั่งไม่ดี (ไม่มีข้อมูลให้เช็ค)
+                notify_line_async(line_msg)                                  # ส่งข้อความไป LINE แบบ background
+                last_line_alert_t = now                                      # บันทึกเวลาที่ส่ง LINE ล่าสุด (ZONE 3)
+        else:                                                               # ถ้าท่าทางตอนนี้โอเคแล้ว
+            good_frames += 1                                               # เพิ่มตัวนับเฟรมท่าดีติดต่อกัน
+            if good_frames > 10:                                             # ถ้าท่าดีต่อเนื่องเกิน 10 เฟรม
+                bad_start = None                                             # รีเซ็ตจุดเริ่มนั่งไม่ดี (ถือว่าหายค่อมแล้ว)
+            bad_frames = 0                                                   # รีเซ็ตตัวนับเฟรมท่าไม่ดีเป็นศูนย์
+    else:                                                                    # ถ้าไม่พบคนในเฟรมนี้เลย
+        bad_start = None                                                     # รีเซ็ตจุดเริ่มนั่งไม่ดี (ไม่มีข้อมูลให้เช็ค)
 
     # ==================== UI ====================
     # --- แถบบน: สถานะ ---
-    if result.pose_landmarks:                                                # ถ้าตรวจพบคนในเฟรมนี้
-        if posture_ok:                                                        # ถ้าท่าทางโอเคทั้งหมด
-            status_color = (30, 180, 30)                                      # สีเขียวสำหรับข้อความสถานะ
-            status_text  = "your motion is exactly right!"             # ข้อความให้กำลังใจ
-        elif spine_angle is not None and spine_angle < SPINE_ANGLE_WARN:       # ถ้าค่อมชัดเจนตามเกณฑ์ ZONE 1
-            status_color = (0, 60, 220)                                       # สีแดงสำหรับข้อความสถานะ
-            status_text  = "your posture is not correct!"        # ข้อความเตือนหนัก
-        else:                                                                  # กรณีเริ่มค่อมหรือคอยื่นเล็กน้อย
-            status_color = (0, 140, 255)                                       # สีส้มสำหรับข้อความสถานะ
-            status_text  = "your posture needs improvement"             # ข้อความเตือนเบา ๆ
-    else:                                                                      # ถ้าไม่พบคนในเฟรม
-        status_color = (80, 80, 80)                                            # สีเทาสำหรับข้อความสถานะ
-        status_text  = "—  มองไม่เห็นท่าทาง ลองขยับกล้อง/แสงดูนะ"               # ข้อความแจ้งปัญหาการมองเห็น
+    if result.pose_landmarks:                                               # ถ้าตรวจพบคนในเฟรมนี้
+        if posture_ok:                                                      # ถ้าท่าทางโอเคทั้งหมด
+            status_color = (30, 180, 30)                                     # สีเขียวสำหรับข้อความสถานะ
+            status_text  = "your motion is exactly right!"                    # ข้อความให้กำลังใจ
+        elif spine_angle is not None and spine_angle < SPINE_ANGLE_WARN:      # ถ้าค่อมชัดเจนตามเกณฑ์ ZONE 1
+            status_color = (0, 60, 220)                                      # สีแดงสำหรับข้อความสถานะ
+            status_text  = "your posture is not correct!"                       # ข้อความเตือนหนัก
+        else:                                                               # กรณีเริ่มค่อมหรือคอยื่นเล็กน้อย
+            status_color = (0, 140, 255)                                     # สีส้มสำหรับข้อความสถานะ
+            status_text  = "your posture needs improvement"                    # ข้อความเตือนเบา ๆ
+    else:                                                                   # ถ้าไม่พบคนในเฟรม
+        status_color = (80, 80, 80)                                           # สีเทาสำหรับข้อความสถานะ
+        status_text  = "—  มองไม่เห็นท่าทาง ลองขยับกล้อง/แสงดูนะ"              # ข้อความแจ้งปัญหาการมองเห็น
 
-    draw_rounded_rect(frame, 0, 0, W, 68, 0, (20, 20, 20), alpha=0.65)         # วาดแถบพื้นหลังโปร่งใสด้านบนจอ
-    cv2.putText(frame, status_text, (20, 46),                                  # เขียนข้อความสถานะลงบนแถบบน
-                cv2.FONT_HERSHEY_DUPLEX, 1.1, status_color, 2, cv2.LINE_AA)     # กำหนดฟอนต์ ขนาด สี ความหนา
+    draw_rounded_rect(frame, 0, 0, W, 68, 0, (20, 20, 20), alpha=0.65)        # วาดแถบพื้นหลังโปร่งใสด้านบนจอ
+    cv2.putText(frame, status_text, (20, 46),                                # เขียนข้อความสถานะลงบนแถบบน
+                cv2.FONT_HERSHEY_DUPLEX, 1.1, status_color, 2, cv2.LINE_AA)    # กำหนดฟอนต์ ขนาด สี ความหนา
 
-    # --- แถบขวา: metrics ---
-    if result.pose_landmarks and spine_angle is not None:                      # ถ้ามีข้อมูลมุมหลังให้แสดง
-        draw_rounded_rect(frame, W-280, 80, W, 220, 8, (20, 20, 20), alpha=0.6)  # วาดกล่องพื้นหลังด้านขวาบน
-        metrics = [                                                            # ลิสต์ข้อมูลตัวเลขที่จะแสดง
-            ("Spine Angle", f"{spine_angle:.1f} deg"),                          # แถวมุมกระดูกสันหลัง
-            ("Head Fwd",    f"{head_forward:.3f}"),                             # แถวระยะคอยื่น
-            ("Bad time",    f"{total_bad_sec:.0f} s"),                          # แถวเวลาสะสมที่ท่าไม่ดี
-        ]
-        for i, (k, v) in enumerate(metrics):                                    # วนแสดงแต่ละแถวของ metrics
-            cy = 112 + i * 42                                                    # คำนวณตำแหน่งแนวตั้งของแถวนี้
-            cv2.putText(frame, k, (W-268, cy),                                   # เขียนชื่อ metric (label)
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (160,160,160), 1)          # ฟอนต์เล็ก สีเทาอ่อน
-            cv2.putText(frame, v, (W-268, cy+20),                                # เขียนค่าตัวเลขของ metric
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,220,255), 2)            # ฟอนต์ใหญ่กว่า สีฟ้า
+    # --- แถบขวา: Metrics Card ---
+    if result.pose_landmarks and spine_angle is not None:                   # ถ้ามีข้อมูลมุมหลังให้วาดการ์ดตัวเลข
+        px1, py1 = W - 360, 85                                              # พิกัดมุมซ้ายบนของการ์ด
+        px2, py2 = W - 20, 245                                              # พิกัดมุมขวาล่างของการ์ด
+        draw_rounded_rect(frame, px1, py1, px2, py2, 12, (20, 20, 20), alpha=0.65)  # วาดการ์ดโปร่งใส
 
-    # --- กล่องเตือน ---
-    # แก้ไข: ขยายกล่องเตือนเป็น 2 บรรทัด เผื่อข้อความแนะนำยาวขึ้น
-    if now < alert_until and alert_msg:                                        # ถ้ายังอยู่ในช่วงเวลาที่ต้องโชว์ (ZONE 2)
-        draw_rounded_rect(frame, 0, H-110, W, H, 0, (0, 30, 140), alpha=0.75)    # วาดกล่องพื้นหลังสีน้ำเงินด้านล่างจอ
-        max_chars_per_line = max(1, W // 13)                                    # คำนวณจำนวนตัวอักษรสูงสุดต่อบรรทัดคร่าว ๆ
-        line1 = alert_msg[:max_chars_per_line]                                  # ตัดข้อความส่วนแรกไปแสดงบรรทัดที่ 1
-        line2 = alert_msg[max_chars_per_line:max_chars_per_line*2]              # ตัดข้อความส่วนที่สองไปแสดงบรรทัดที่ 2
-        cv2.putText(frame, line1, (20, H-68),                                   # เขียนข้อความบรรทัดที่ 1
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)  # กำหนดฟอนต์ ขนาด สี
-        if line2:                                                               # ถ้ามีข้อความเหลือสำหรับบรรทัดที่ 2
-            cv2.putText(frame, line2, (20, H-32),                                # เขียนข้อความบรรทัดที่ 2
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 220, 255), 2, cv2.LINE_AA)  # กำหนดฟอนต์ ขนาด สี
+        # แสดงค่ามุมกระดูกสันหลัง
+        cv2.putText(frame, f"Spine Angle : {spine_angle:.1f} deg", (px1 + 18, py1 + 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 1, cv2.LINE_AA)
+        
+        # แสดงค่าระยะคอยื่น
+        cv2.putText(frame, f"Head Forward: {head_forward:.2f}", (px1 + 18, py1 + 72),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 1, cv2.LINE_AA)
 
-    # --- เวลา session ---
-    elapsed = int(now - session_start)                                         # คำนวณเวลารวมตั้งแต่เริ่ม session (วินาที)
-    cv2.putText(frame, f"Session {elapsed//60:02d}:{elapsed%60:02d}",           # เขียนเวลารวมในรูปแบบ นาที:วินาที
-                (20, H-15), cv2.FONT_HERSHEY_SIMPLEX,                           # ตำแหน่งมุมล่างซ้ายของจอ
-                0.6, (140,140,140), 1, cv2.LINE_AA)                             # ขนาดฟอนต์เล็ก สีเทา
+        # แสดงรายการปัญหาที่พบ
+        issue_text = ", ".join(issues) if issues else "None"
+        cv2.putText(frame, f"Issues: {issue_text}", (px1 + 18, py1 + 109),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 2, cv2.LINE_AA)
 
-    # --- คีย์ลัด ---
-    cv2.putText(frame, "Q=Quit  R=Reset", (W-230, H-15),                       # เขียนข้อความคีย์ลัดมุมล่างขวา
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (120,120,120), 1)               # ขนาดฟอนต์เล็ก สีเทาอ่อน
+        # แสดงสถิติเวลารวมใน session
+        session_sec = int(now - session_start)
+        cv2.putText(frame, f"Bad Time: {int(total_bad_sec)}s / Session: {session_sec}s", (px1 + 18, py1 + 145),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
 
-    cv2.imshow("Posture Guard — Office Syndrome Prevention", frame)            # แสดงภาพเฟรมนี้ในหน้าต่างโปรแกรม
-    key = cv2.waitKey(1) & 0xFF                                                # อ่านค่าปุ่มที่ผู้ใช้กด (รอ 1ms)
-    if key in (ord("q"), ord("Q"), 27):                                        # ถ้ากด Q, q หรือ ESC (27)
-        break                                                                   # ออกจากลูปหลัก จบโปรแกรม
-    elif key in (ord("r"), ord("R")):                                          # ถ้ากด R หรือ r
-        bad_start     = None                                                    # รีเซ็ตจุดเริ่มนั่งไม่ดี
-        total_bad_sec = 0.0                                                     # รีเซ็ตเวลาสะสมท่าไม่ดีเป็นศูนย์
-        session_start = time.time()                                             # รีเซ็ตเวลาเริ่ม session ใหม่
-        last_line_alert_t = 0                                                   # แก้ไข: รีเซ็ต cooldown ของ LINE ด้วย (ZONE 3)
-        print("Reset สถิติแล้ว")                                                # แจ้งผู้ใช้ว่า reset สำเร็จ
+    # --- แถบล่าง: กล่องแจ้งเตือนบนจอ (On-Screen Alert Banner) ---
+    if now < alert_until and alert_msg:                                     # ถ้ายังไม่หมดเวลาแสดงกล่องเตือน (ZONE 2)
+        draw_rounded_rect(frame, 40, H - 90, W - 40, H - 20, 15, (0, 40, 180), alpha=0.8)  # วาดกล่องสีน้ำเงินเข้ม
+        cv2.putText(frame, alert_msg, (60, H - 45),                          # เขียนข้อความคำแนะนำ
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
 
-cap.release()                                                                    # คืนอุปกรณ์กล้องกลับให้ระบบ
-cv2.destroyAllWindows()                                                          # ปิดหน้าต่างแสดงผลทั้งหมดของ OpenCV
-detector.close()                                                                 # ปิดตัวตรวจจับ pose ของ MediaPipe
-print(f"จบ session  |  นั่งไม่ดีรวม {total_bad_sec:.0f} วินาที")                  # สรุปผลรวมเวลาที่นั่งไม่ดีตอนจบโปรแกรม
+    # ==================== แสดงผล & คีย์บอร์ด ====================
+    cv2.imshow("Posture Guard", frame)                                       # แสดงภาพในหน้าต่าง OpenCV
+
+    key = cv2.waitKey(1) & 0xFF                                              # อ่านปุ่มกดจากคีย์บอร์ด
+    if key in (27, ord('q'), ord('Q')):                                     # กด ESC หรือ Q/q เพื่อปิดโปรแกรม
+        print("ปิดการทำงานโปรแกรม Posture Guard")
+        break
+    elif key in (ord('r'), ord('R')):                                       # กด R/r เพื่อรีเซ็ตค่าสถิติ
+        session_start = time.time()                                         # รีเซ็ตเวลาเริ่มต้น session
+        total_bad_sec = 0.0                                                 # รีเซ็ตเวลารวมที่นั่งท่าไม่ดี
+        bad_start     = None                                                # รีเซ็ตจุดเริ่มนั่งท่าไม่ดี
+        print("[RESET] รีเซ็ตสถิติเวลาใช้งานเรียบร้อยแล้ว")
+
+# ==================== คืนทรัพยากร ====================
+cap.release()                                                               # ปิดกล้อง
+cv2.destroyAllWindows()                                                     # ปิดหน้าต่างแสดงผลทั้งหมด
+detector.close()                                                            # ปิดตัวประมวลผล PoseLandmarker
