@@ -16,12 +16,14 @@
 #   23 = left_hip
 #   24 = right_hip
 #
-# แก้ไข: เชื่อมต่อกับ line_notify.py เพื่อส่งข้อความแจ้งเตือนเข้า LINE
-#         (รายละเอียดตั้งค่าอยู่ในไฟล์ line_notify.py)
+# แก้ไข: เชื่อมต่อกับ line_chat.py service เพื่อส่งข้อความแจ้งเตือนเข้า LINE
+#         ในเวอร์ชันนี้ camera.py จะ POST ข้อความไปยัง Flask service
+#         ส่วน line_chat.py จะเป็น service ที่รับคำสั่งและเรียก LINE Messaging API
 # แก้ไข: เพิ่มจุดข้อต่อกระดูกสันหลังแบบเส้นโค้ง (Catmull-Rom spline) ละเอียดขึ้นมาก
 # แก้ไข: แยกค่าตั้งเวลาแจ้งเตือนออกเป็น "โซน" ชัดเจน คอมเมนต์ทั้งบล็อกได้ง่าย
 # ============================================================================
 
+<<<<<<< HEAD
 import cv2                                      # ใช้วาดภาพ/แสดงผลกล้อง (OpenCV)
 import math                                     # ใช้คำนวณมุมและระยะทาง (acos, hypot)
 import time                                     # ใช้จับเวลา session และ cooldown ของการแจ้งเตือน
@@ -29,24 +31,67 @@ import threading                                # แก้ไข: ใช้ร�
 import urllib.request                           # ใช้ดาวน์โหลดโมเดล pose จากอินเทอร์เน็ต
 import os                                       # ใช้เช็คว่าไฟล์โมเดลมีอยู่แล้วหรือยัง
 import mediapipe as mp                          # ไลบรารีตรวจจับท่าทางร่างกาย (Pose Landmarker)
+=======
+import cv2                                              # ใช้วาดภาพ/แสดงผลกล้อง (OpenCV)
+import math                                             # ใช้คำนวณมุมและระยะทาง (acos, hypot)
+import time                                              # ใช้จับเวลา session และ cooldown ของการแจ้งเตือน
+import threading                                        # แก้ไข: ใช้รันการส่ง LINE แบบ background ไม่ให้ภาพกระตุก
+import urllib.request                                    # ใช้ดาวน์โหลดโมเดล pose จากอินเทอร์เน็ต
+import os                                                # ใช้เช็คว่าไฟล์โมเดลมีอยู่แล้วหรือยัง
+try:
+    import requests                                    # ใช้ส่ง POST ไปยัง line_chat service
+except ImportError:
+    requests = None
+import mediapipe as mp                                   # ไลบรารีตรวจจับท่าทางร่างกาย (Pose Landmarker)
+>>>>>>> 689ba237a81ae221eb85d2c256bc98b989dd3b12
 from mediapipe.tasks import python as mp_python           # โมดูลย่อยสำหรับตั้งค่า BaseOptions ของโมเดล
 from mediapipe.tasks.python import vision as mp_vision    # โมดูลย่อยสำหรับ PoseLandmarker (vision tasks)
 from mediapipe.tasks.python.vision import PoseLandmarksConnections  # เส้นเชื่อมจุด landmark มาตรฐานของ MediaPipe
 
-# แก้ไข: import ฟังก์ชันส่งแจ้งเตือนจากไฟล์แยก line_notify.py
-# ใช้ try/except ครอบไว้ เพื่อให้สคริปต์นี้ยังรันกล้อง/ตรวจท่าทางได้ปกติ
-# แม้ไม่มีไฟล์ line_notify.py อยู่ในโฟลเดอร์เดียวกัน หรือยังไม่ได้ตั้งค่า token
-try:
-    from line_notify import send_line_alert, is_configured as line_is_configured  # ฟังก์ชันจริงจากไฟล์แยก
-    LINE_MODULE_AVAILABLE = True                          # ตั้งค่าสถานะว่าโมดูล LINE พร้อมใช้งาน
-except ImportError:                                       # ถ้าไม่พบไฟล์ line_notify.py หรือ import ไม่ได้
-    LINE_MODULE_AVAILABLE = False                          # ตั้งค่าสถานะว่าไม่มีโมดูล LINE ให้ใช้
+# LINE chat relay service configuration
+# camera.py จะส่ง POST ไปยัง service ที่รันโดย line_chat.py
+# โดยค่าเริ่มต้นจะเป็น http://127.0.0.1:5000/notify
+LINE_CHAT_HOST = os.environ.get("LINE_CHAT_HOST", "http://127.0.0.1:5000")
+LINE_CHAT_NOTIFY_URL = f"{LINE_CHAT_HOST.rstrip('/')}/notify"
+LINE_CHAT_DEFAULT_TO = os.environ.get("LINE_CHAT_TARGET_ID", os.environ.get("LINE_TARGET_ID", ""))  # LINE user/group ID to push messages to
+LINE_MODULE_AVAILABLE = requests is not None                        # มีไลบรารี requests อยู่หรือไม่
 
-    def send_line_alert(message, to=None):                 # ฟังก์ชันสำรอง (ไม่ทำอะไร) กันโค้ดพังตอนเรียกใช้
-        return False                                        # คืนค่า False แปลว่าส่งไม่สำเร็จ/ไม่ได้ส่ง
 
-    def line_is_configured():                               # ฟังก์ชันสำรองเช็คว่าตั้งค่า LINE ไว้หรือยัง
-        return False                                        # คืนค่า False เสมอเมื่อไม่มีโมดูลจริง
+def send_line_alert(message, to=None):                              # ส่งข้อความไปที่ line_chat service
+    """ส่งคำสั่งแจ้งเตือนไปยัง line_chat service แบบ HTTP POST."""
+    if requests is None:                                              # ถ้าไม่มี requests ให้ข้ามการส่ง
+        return False
+    payload = {"message": message}
+    if to:
+        payload["to"] = to
+    elif LINE_CHAT_DEFAULT_TO:
+        payload["to"] = LINE_CHAT_DEFAULT_TO
+
+    # เรียก POST ไปยัง line_chat service ที่รอรับคำสั่ง
+    try:
+        resp = requests.post(LINE_CHAT_NOTIFY_URL, json=payload, timeout=3)
+        resp.raise_for_status()
+        return True
+    except Exception as exc:
+        print(f"[LINE_CHAT] failed to send alert: {exc}")
+        return False
+
+
+def line_is_configured():
+    """ตรวจสอบว่าสามารถส่งข้อความผ่าน line_chat service ได้หรือไม่."""
+    return LINE_MODULE_AVAILABLE and bool(LINE_CHAT_DEFAULT_TO)
+
+
+def notify_terminal(message):
+    """แสดงข้อความแจ้งเตือนใน terminal โดยไม่พึ่งพา LINE."""
+    print(f"[POSTURE ALERT] {message}", flush=True)
+
+# ==================== การตั้งค่ากล้องสำหรับ Raspberry Pi ====================
+# ใช้ความละเอียดเริ่มต้น 640x480 เพื่อลดภาระ CPU และ RAM ของ Raspberry Pi 4GB
+# ค่าที่ผู้ใช้ตั้งผ่าน environment จะถูกจำกัดไม่ให้เกิน 1280x700
+CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", "0"))
+CAMERA_WIDTH = min(max(int(os.environ.get("CAMERA_WIDTH", "640")), 1), 1280)
+CAMERA_HEIGHT = min(max(int(os.environ.get("CAMERA_HEIGHT", "480")), 1), 700)
 
 # ==================== ดาวน์โหลดโมเดล ====================
 MODEL_PATH = "pose_landmarker_lite.task"                  # ชื่อไฟล์โมเดลที่จะเก็บไว้ในเครื่อง
@@ -100,7 +145,7 @@ ALERT_DISPLAY_SEC    = 5    # วินาที: กล่องเตือน
 #     - ถ้าไม่อยากให้ส่ง LINE เลย คอมเมนต์บล็อกนี้ทั้งหมด แล้วตั้ง
 #       LINE_ALERT_DURATION_TRIGGER = 999999 แทนได้เลย (หรือลบไฟล์ line_notify.py ทิ้ง)
 # ============================================================================
-LINE_ALERT_DURATION_TRIGGER = 60    # วินาที: ต้องค่อมต่อเนื่องนานเท่านี้ก่อนยิงข้อความไป LINE
+LINE_ALERT_DURATION_TRIGGER = 10    # วินาที: ถ้าท่าผิดติดต่อกันเกิน 10 วินาที ให้ส่งข้อความไป LINE
 LINE_ALERT_COOLDOWN_SEC     = 300   # วินาที: ส่ง LINE ซ้ำได้ทุกกี่วินาที (300 = 5 นาที) กันสแปม
 
 
@@ -232,9 +277,9 @@ def draw_rounded_rect(img, x1, y1, x2, y2, r, color, alpha=0.6):     # ฟัง
 
 
 def notify_line_async(message):                                       # ฟังก์ชันส่งข้อความ LINE แบบ background
-    # แก้ไข: ฟังก์ชันใหม่ — ส่งข้อความไป LINE ในเธรดแยก ไม่ให้ network call บล็อกเฟรมกล้อง
-    """ส่งข้อความไป LINE ในเธรดแยก (background thread) เพื่อไม่ให้ภาพจากกล้องกระตุก"""  # อธิบายหน้าที่ฟังก์ชัน
-    if not LINE_MODULE_AVAILABLE or not line_is_configured():          # เช็คว่ามีโมดูล LINE และตั้งค่าแล้วหรือยัง
+    # แก้ไข: ฟังก์ชันใหม่ — ส่งข้อความไป line_chat service ในเธรดแยก
+    """ส่งข้อความไป LINE ผ่าน line_chat service ในเธรดแยกเพื่อไม่ให้ภาพจากกล้องกระตุก"""
+    if not LINE_MODULE_AVAILABLE or not line_is_configured():          # เช็คว่า requests พร้อมและค่า target ถูกตั้ง
         return                                                          # ถ้ายังไม่พร้อม ออกจากฟังก์ชันทันที ไม่ส่ง
     threading.Thread(target=send_line_alert, args=(message,), daemon=True).start()  # สร้างเธรดใหม่ส่งข้อความแล้วรันทันที
 
@@ -250,9 +295,9 @@ options = mp_vision.PoseLandmarkerOptions(                             # สร�
 detector = mp_vision.PoseLandmarker.create_from_options(options)        # สร้างตัวตรวจจับ pose จริงจากค่าตั้งค่าด้านบน
 
 # ==================== เปิดกล้อง ====================
-cap = cv2.VideoCapture(0)                                               # เปิดกล้องตัวแรกของเครื่อง (index 0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)                                 # ตั้งความกว้างเฟรมภาพเป็น 1280 พิกเซล
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)                                 # ตั้งความสูงเฟรมภาพเป็น 720 พิกเซล
+cap = cv2.VideoCapture(CAMERA_INDEX)                                    # เปิดกล้องตาม index ที่ตั้งไว้
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)                          # ตั้งความกว้างภาพให้เหมาะกับ Raspberry Pi
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)                        # ตั้งความสูงภาพให้เหมาะกับ Raspberry Pi
 
 print("กด Q / ESC เพื่อออก  |  กด R เพื่อ reset baseline")               # แจ้งคีย์ลัดให้ผู้ใช้ทราบตอนเริ่มโปรแกรม
 if LINE_MODULE_AVAILABLE and line_is_configured():                      # กรณีมีโมดูล LINE และตั้งค่าครบแล้ว
@@ -272,10 +317,16 @@ bad_frames    = 0                                                        # น�
 
 # แก้ไข: ตัวแปรใหม่สำหรับคุมการส่งแจ้งเตือนไป LINE แยกจากการเตือนบนจอ (คนละ cooldown กัน)
 last_line_alert_t = 0                                                    # เวลาที่ส่งข้อความ LINE ครั้งล่าสุด
+last_terminal_alert_t = 0                                                 # เวลาที่แจ้งเตือนใน terminal ครั้งล่าสุด
 
 # สถิติ session
 session_start = time.time()                                              # เวลาที่เริ่ม session (ใช้คำนวณเวลารวม)
+<<<<<<< HEAD
 total_bad_sec = 0.0                                                      # เวลารวมทั้งหมดที่นั่งท่าไม่ดี (วินาที)
+=======
+total_bad_sec = 0.0                                                       # เวลารวมทั้งหมดที่นั่งท่าไม่ดี (วินาที)
+previous_frame_time = session_start                                       # เวลาเฟรมก่อนหน้า ใช้สะสมเวลาจริงของท่าผิด
+>>>>>>> 689ba237a81ae221eb85d2c256bc98b989dd3b12
 
 while cap.isOpened():                                                    # ลูปหลัก: ทำงานตราบเท่าที่กล้องยังเปิดอยู่
     ok, frame = cap.read()                                                # อ่านเฟรมภาพปัจจุบันจากกล้อง
@@ -326,6 +377,7 @@ while cap.isOpened():                                                    # ล�
 
         # ---- วิเคราะห์ ----
         # แก้ไข: ข้อความแนะนำวิธีแก้ไข (tips) แยกจากข้อความสั้นสำหรับ metrics (issues)
+<<<<<<< HEAD
         if spine_angle < SPINE_ANGLE_WARN:                                 # ถ้ามุมหลังน้อยกว่าเกณฑ์ "ค่อมชัดเจน"
             posture_ok = False                                              # ตั้งสถานะว่าท่าทางไม่โอเค
             issues.append(f"หลังค่อมมาก ({spine_angle:.0f}°)")              # เพิ่มข้อความสั้นเข้าลิสต์ metrics
@@ -339,6 +391,21 @@ while cap.isOpened():                                                    # ล�
             posture_ok = False                                              # ตั้งสถานะว่าท่าทางไม่โอเค
             issues.append("คอยื่น (Forward Head)")                         # เพิ่มข้อความสั้นเข้าลิสต์ metrics
             tips.append("คอยื่นไปข้างหน้าเยอะไป ลองดึงคางเข้าเล็กน้อย และปรับจอให้อยู่ระดับสายตา")  # เพิ่มคำแนะนำเต็ม
+=======
+        if spine_angle < SPINE_ANGLE_WARN:                                  # If the spine angle is below the severe slump threshold
+            posture_ok = False                                               # Mark posture as not okay
+            issues.append(f"Severe slouch ({spine_angle:.0f}°)")             # Add short issue text to metrics
+            tips.append("You are slouching too much. Try sitting up straight, lower your shoulders, and gently lift your chest.")  # Add full tip text
+        elif spine_angle < SPINE_ANGLE_GOOD:                                 # If the angle is in the beginning slouch range
+            posture_ok = False                                               # Mark posture as not okay
+            issues.append(f"Starting to slouch ({spine_angle:.0f}°)")         # Add short issue text to metrics
+            tips.append("You are beginning to slouch. Move your hips closer to the chair and straighten your back a bit more.")  # Add full tip text
+
+        if head_forward > HEAD_FORWARD_THRESH:                              # If the head is forward beyond the threshold
+            posture_ok = False                                               # Mark posture as not okay
+            issues.append("Forward head posture")                          # Add short issue text to metrics
+            tips.append("Your head is too far forward. Tuck your chin slightly and adjust your screen to eye level.")  # Add full tip text
+>>>>>>> 689ba237a81ae221eb85d2c256bc98b989dd3b12
 
         # ---- วาดเส้นกระดูกสันหลัง (ละเอียดขึ้นมากด้วยเส้นโค้ง Catmull-Rom) ----
         # แก้ไข: เรียก build_spine_points() แบบใหม่ที่คืนจุดข้อต่อละเอียดกว่าเดิมหลายเท่า
@@ -348,6 +415,7 @@ while cap.isOpened():                                                    # ล�
         draw_spine_line(frame, spine_points, major_indices, color_spine)   # วาดแนวกระดูกสันหลัง (จุดคอ/ไหล่/เอวขนาดเท่าเดิม)
 
         # ---- จับเวลาท่าไม่ดี ----
+<<<<<<< HEAD
         if not posture_ok:                                                 # ถ้าท่าทางตอนนี้ไม่โอเค
             bad_frames += 1                                                # เพิ่มตัวนับเฟรมท่าไม่ดีติดต่อกัน
             good_frames = 0                                                # รีเซ็ตตัวนับเฟรมท่าดีเป็นศูนย์
@@ -355,6 +423,15 @@ while cap.isOpened():                                                    # ล�
                 bad_start = now                                            # บันทึกเวลาเริ่มนั่งไม่ดีตอนนี้
             bad_elapsed = now - bad_start                                   # คำนวณระยะเวลาที่นั่งไม่ดีต่อเนื่องมา
             total_bad_sec += 0.033                                         # สะสมเวลารวมของท่าไม่ดี (~1 เฟรม)
+=======
+        if not posture_ok:                                                  # ถ้าท่าทางตอนนี้ไม่โอเค
+            bad_frames += 1                                                  # เพิ่มตัวนับเฟรมท่าไม่ดีติดต่อกัน
+            good_frames = 0                                                  # รีเซ็ตตัวนับเฟรมท่าดีเป็นศูนย์
+            if bad_start is None:                                            # ถ้ายังไม่มีจุดเริ่มนั่งไม่ดี
+                bad_start = now                                               # บันทึกเวลาเริ่มนั่งไม่ดีตอนนี้
+            bad_elapsed = now - bad_start                                    # คำนวณระยะเวลาที่นั่งไม่ดีต่อเนื่องมา
+            total_bad_sec += now - previous_frame_time                       # สะสมเวลาจริง ไม่ผูกกับจำนวน FPS
+>>>>>>> 689ba237a81ae221eb85d2c256bc98b989dd3b12
 
             # --- ใช้ค่าจาก ZONE 2 (เวลาแจ้งเตือนบนจอ) ---
             if bad_elapsed >= BAD_DURATION_TRIGGER and (now - last_alert_t) > ALERT_COOLDOWN_SEC:  # เช็คเงื่อนไข ZONE 2
@@ -365,16 +442,27 @@ while cap.isOpened():                                                    # ล�
                 alert_until = now + ALERT_DISPLAY_SEC                        # ตั้งเวลาที่จะซ่อนกล่องเตือน (ZONE 2)
                 last_alert_t = now                                           # บันทึกเวลาที่เตือนล่าสุด (ใช้คุม cooldown)
 
+            # --- แจ้งเตือนใน terminal ---
+            if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER
+                    and (now - last_terminal_alert_t) > LINE_ALERT_COOLDOWN_SEC):
+                terminal_msg = (
+                    f"นั่งผิดติดต่อกัน {bad_elapsed:.0f} วินาที: "
+                    "กรุณาปรับหลังและศีรษะให้อยู่ในท่าที่ถูกต้อง"
+                )
+                notify_terminal(terminal_msg)
+                last_terminal_alert_t = now
+
             # --- ใช้ค่าจาก ZONE 3 (เวลาแจ้งเตือนเข้า LINE) ---
             if (bad_elapsed >= LINE_ALERT_DURATION_TRIGGER                   # เช็คว่าค่อมนานพอตามเกณฑ์ ZONE 3 หรือยัง
                     and (now - last_line_alert_t) > LINE_ALERT_COOLDOWN_SEC):  # และพ้น cooldown ของ ZONE 3 หรือยัง
                 minutes = int(bad_elapsed // 60)                             # แปลงวินาทีที่ค่อมเป็นจำนวนนาที (ปัดลง)
                 line_msg = (                                                 # ประกอบข้อความที่จะส่งเข้า LINE
                     "🪑 Posture Guard แจ้งเตือน\n"                            # หัวข้อข้อความ
-                    f"คุณนั่งหลังค่อม/คอยื่นต่อเนื่องมาแล้วประมาณ {minutes} นาที\n"  # บอกระยะเวลาที่ค่อม
+                    f"You have been sitting with a hunched back or a forward-leaning neck for {minutes} minutes.\n"  # บอกระยะเวลาที่ค่อม
                     + "\n".join(f"- {t}" for t in tips)                        # แสดงคำแนะนำแต่ละข้อเป็นบูลเลต
-                    + "\nลองลุกยืดเส้นยืดสาย หรือปรับท่านั่งสักครู่นะครับ"       # ปิดท้ายด้วยคำแนะนำรวม
+                    + "\nTry standing up, stretching, or adjusting your posture."       # ปิดท้ายด้วยคำแนะนำรวม
                 )
+<<<<<<< HEAD
                 notify_line_async(line_msg)                                  # ส่งข้อความไป LINE แบบ background
                 last_line_alert_t = now                                      # บันทึกเวลาที่ส่ง LINE ล่าสุด (ZONE 3)
         else:                                                               # ถ้าท่าทางตอนนี้โอเคแล้ว
@@ -384,6 +472,18 @@ while cap.isOpened():                                                    # ล�
             bad_frames = 0                                                   # รีเซ็ตตัวนับเฟรมท่าไม่ดีเป็นศูนย์
     else:                                                                    # ถ้าไม่พบคนในเฟรมนี้เลย
         bad_start = None                                                     # รีเซ็ตจุดเริ่มนั่งไม่ดี (ไม่มีข้อมูลให้เช็ค)
+=======
+                notify_line_async(line_msg)                                   # ส่งข้อความไป LINE แบบ background
+                last_line_alert_t = now                                       # บันทึกเวลาที่ส่ง LINE ล่าสุด (ZONE 3)
+        else:                                                                 # ถ้าท่าทางตอนนี้โอเคแล้ว
+            good_frames += 1                                                  # เพิ่มตัวนับเฟรมท่าดีติดต่อกัน
+            bad_start = None                                                  # ท่ากลับมาถูกแล้ว จึงหยุดและรีเซ็ต timer ทันที
+            bad_frames = 0                                                    # รีเซ็ตตัวนับเฟรมท่าไม่ดีเป็นศูนย์
+    else:                                                                     # ถ้าไม่พบคนในเฟรมนี้เลย
+        bad_start = None                                                      # รีเซ็ตจุดเริ่มนั่งไม่ดี (ไม่มีข้อมูลให้เช็ค)
+>>>>>>> 689ba237a81ae221eb85d2c256bc98b989dd3b12
+
+    previous_frame_time = now                                                  # เก็บเวลาเฟรมนี้ไว้คำนวณเฟรมถัดไป
 
     # ==================== UI ====================
     # --- แถบบน: สถานะ ---
